@@ -13,7 +13,7 @@
 - **그러나 segmenation handler가 무한 호출이 되는 에러를 해결하지 못하여서 테스트 프로그램의 실행은 실패함.**
 - **앞선 에러를 해결하지 못하여서, 이어지는 hpager의 구현까지는 도달하지 못하였다**
 # test 파일만 실행 결과
-<img width="650" alt="테스트 결과" src="https://user-images.githubusercontent.com/47956399/116871482-4aaa4a00-ac4f-11eb-8690-3c94e2522b39.PNG">
+<img width="450" alt="테스트 결과" src="https://user-images.githubusercontent.com/47956399/116871482-4aaa4a00-ac4f-11eb-8690-3c94e2522b39.PNG">
 
 - **1부터 1,000,000,000까지 while문을 돌면서, 10,000,000의 배수일때만 숫자를 출력하는 테스트 프로그램**
 - **편의상 10,000,000을 1로 치환하여 출력하였다**
@@ -21,6 +21,8 @@
 # 참고 링크
 ### 과제 출처
 https://www.cs.utexas.edu/users/witchel/380L/lab/lab3.html  
-### 원본 코드 및 헤더 파일
-(elf.h 헤더 파일) https://code.woboq.org/linux/include/elf.h.html  
-(원본 코드) https://elixir.bootlin.com/linux/v4.4/source/fs/binfmt_elf.c#L50
+### 원본 코드
+https://elixir.bootlin.com/linux/v4.4/source/fs/binfmt_elf.c#L50
+### elf.h 헤더 파일
+https://code.woboq.org/linux/include/elf.h.html  
+
