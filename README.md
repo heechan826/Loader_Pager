@@ -8,7 +8,7 @@
 # dpager 실행 결과
 <img width="650" alt="dpager 결과" src="https://user-images.githubusercontent.com/47956399/116871479-4716c300-ac4f-11eb-99b5-8fedcac0052b.PNG">
 
-- **세그먼트들을 바로 로딩하여 매핑하는 대신, 자체적인 program header table을 만들어서 보관하는 방식**
+- **세그먼트들을 바로 로딩하여 매핑하는 대신, 자체적인 program header table에 로딩해둬서 보관하는 방식**
 - **segmentation violation이 일어날때 직접 만든 program header table에서 해당하는 주소의 segment를 로딩하게 구현하였다**
 - **그러나 segmenation handler가 무한 호출이 되는 에러를 해결하지 못하여서 테스트 프로그램의 실행은 실패함.**
 - **앞선 에러를 해결하지 못하여서, 이어지는 hpager의 구현까지는 도달하지 못하였다**
