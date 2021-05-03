@@ -19,10 +19,10 @@
 - **편의상 10,000,000을 1로 치환하여 출력하였다**
 
 # 참고 링크
-### 과제 출처
+#### 과제 출처
 https://www.cs.utexas.edu/users/witchel/380L/lab/lab3.html  
-### 원본 코드
+#### 원본 코드
 https://elixir.bootlin.com/linux/v4.4/source/fs/binfmt_elf.c#L50
-### elf.h 헤더 파일
+#### elf.h 헤더 파일
 https://code.woboq.org/linux/include/elf.h.html  
 
