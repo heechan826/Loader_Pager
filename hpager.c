@@ -2,20 +2,24 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
+#include <signal.h>
 #include <elf.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include "apager.h"
+#include "dpager.h"
 
 int8_t *stack_ptr, *stack_top, *arg_start, *env_start;
+int fd;
+Elf64_Ehdr ep;
 
 int main(int argc, char *argv[], char *envp[])
 {
-	Elf64_Ehdr elf_header;
-	int fd, envc = 0;
+	struct sigaction act;
+	int envc = 0;
 
 	if (argc < 2) 
 	{
@@ -29,7 +33,7 @@ int main(int argc, char *argv[], char *envp[])
 		exit(EXIT_FAILURE);
 	}
 
-	if (read(fd, &elf_header, sizeof(Elf64_Ehdr)) < 0) 
+	if (read(fd, &ep, sizeof(Elf64_Ehdr)) < 0) 
 	{
 		fprintf(stderr, "read error %d\n", __LINE__);
 		exit(EXIT_FAILURE);
@@ -37,43 +41,49 @@ int main(int argc, char *argv[], char *envp[])
 	
 	int i = 0;
 	while(envp[i]) envc = ++i;
-
-	load_elf(fd, &elf_header);
+	
+	memset(&act, 0, sizeof(act));
+	act.sa_handler = segv_handler;
+	act.sa_flags = SA_SIGINFO | SA_RESTART;
+	if(sigaction(SIGSEGV, &act, NULL) < 0) fprintf (stderr, "signal(SIGSEGV) error\N");
+	
+	load_elf();
 	init_stack(argc, argv, envc, envp);
-	build_stack(argc, envc, envp, &elf_header);
-	clean_and_jump(elf_header.e_entry);
+	build_stack(argc, envc, envp);
+	clean_and_jump(ep.e_entry);
 
 	exit (EXIT_SUCCESS);
 }
 
-int load_elf(int fd, Elf64_Ehdr *ep)
+int load_elf()
 {	
 	Elf64_Phdr phdr;
 	unsigned long elf_bss = 0, elf_brk = 0;
 	int bss_prot = 0;
 
 	// 1. seek in file
-	lseek(fd, ep->e_phoff, SEEK_SET);
-	 
+	lseek(fd, ep.e_phoff, SEEK_SET);
+	
+	printf("There are %u entries for program header table\n", ep.e_phnum);
+	printf("[Load Loadable segments(excluding bss memory)]");
+	
 	// 2. traverse through program header tables
-	printf("There are %u entries for program header table:\n", ep->e_phnum);
 	int i;
-	for (i = 0; i < ep->e_phnum; i++) 
+	for (i = 0; i < ep.e_phnum; i++) 
 	{
 		int elf_prot = 0, elf_flags;
 		unsigned long k;
-		 
+		
 		// 3. initialize phdr for new segment
 		memset(&phdr, 0, sizeof(Elf64_Phdr));
 		// 4. read one segment from fd 
-		//printf("\nfd location: %d", fd);
 		if (read(fd, &phdr, sizeof(Elf64_Phdr)) < 0) 
 		{
 			fprintf(stderr, "read error on phdr\n");
-			return -1;
+			return;
 		}
 		// 5. skip if not loadable segment
-		printf("\nSegment type(phdr.p_type:[%d]): %u ", i, phdr.p_type); //PT_LOAD == 1
+		printf("\nSegment type(phdr.p_type[%d]): %u ", i, phdr.p_type); //PT_LOAD == 1
 		if (phdr.p_type != PT_LOAD)
 		{
 			printf("-->Not Loadable segment(PT_LOAD!=1)\n", i, phdr.p_type);
@@ -92,25 +102,28 @@ int load_elf(int fd, Elf64_Ehdr *ep)
 		elf_flags = MAP_PRIVATE | MAP_FIXED | MAP_EXECUTABLE;
 
 		// 7. map segment
-		if (elf_map(phdr.p_vaddr, elf_prot, elf_flags, fd, &phdr) < 0) 
+		if (elf_map(phdr.p_vaddr, elf_prot, elf_flags, &phdr) < 0) 
 		{
 			fprintf(stderr, "error on elf_mapping\n");
-			return -1;
+			return;
 		}
 		
+		//SKIP step 8-10 in hpager
+		/*
 		// 8. set bss and brk
 		k = phdr.p_vaddr + phdr.p_filesz;
-		printf("elf_bss[%d]: %p\t", i, k);
+		printf("elf_bss[%d]: %p\t", i, (void *) k);
 		if (k > elf_bss)
 			elf_bss = k;
 
 		k = phdr.p_vaddr + phdr.p_memsz;
-		printf("elf_brk[%d]: %p\n", i, k);
+		printf("elf_brk[%d]: %p\n", i, (void *) k);
 		if (k > elf_brk) 
 		{
 			bss_prot = elf_prot;
 			elf_brk = k;
 		}
+		
 		
 		// 9. If memsz greater than filesz, allocate space for bss
 		if(phdr.p_memsz > phdr.p_filesz)
@@ -122,25 +135,26 @@ int load_elf(int fd, Elf64_Ehdr *ep)
 			if(do_bss(elf_bss, elf_brk, bss_prot) < 0 )
 			{
 				fprintf(stderr, "error on bss mapping\n");
-				return -1;
+				return;
 			}
 			
 			nbyte = ELF_PAGEOFFSET(elf_bss);
 			if (nbyte) 
 			{
 				nbyte = ELF_MIN_ALIGN - nbyte;
-				printf("elf_bss:%p \t elf_bss+nbyte:%p \t nbyte:%p \n", elf_bss, elf_bss+nbyte, nbyte);
-				memset(elf_bss, 0, nbyte);
+				memset((void *) elf_bss, 0, nbyte);
 			}
 		}
 		
+		// 10. Break as the segment was loadable
+		//if (phdr.p_type == PT_LOAD) break;
+		*/
 	}
-	// 10. close file
-	close(fd);
-	return 0;
+
+	return;
 }
 
-void *elf_map(Elf64_Addr addr, int prot, int type, int fd, Elf64_Phdr *phdr)
+void *elf_map(Elf64_Addr addr, int prot, int type, Elf64_Phdr *phdr)
 {
 	size_t size = phdr->p_filesz + ELF_PAGEOFFSET(phdr->p_vaddr);
 	size_t off = phdr->p_offset - ELF_PAGEOFFSET(phdr->p_vaddr);
@@ -200,7 +214,7 @@ int init_stack(int argc, char *argv[], int envc, char *envp[])
 
 }
 
-int build_stack(int argc, int envc, char *envp[], Elf64_Ehdr *ep)
+int build_stack(int argc, int envc, char *envp[])
 {
 	int items, ei_index = 0; 
 	int8_t *ptr;
@@ -213,8 +227,8 @@ int build_stack(int argc, int envc, char *envp[], Elf64_Ehdr *ep)
 	{
 		elf_info[ei_index] = *auxv;
 		if (auxv->a_type == AT_PHDR) elf_info[ei_index].a_un.a_val = 0;
-		else if (auxv->a_type == AT_ENTRY) elf_info[ei_index].a_un.a_val = ep->e_entry;
-		else if (auxv->a_type == AT_PHNUM) elf_info[ei_index].a_un.a_val = ep->e_phnum;
+		else if (auxv->a_type == AT_ENTRY) elf_info[ei_index].a_un.a_val = ep.e_entry;
+		else if (auxv->a_type == AT_PHNUM) elf_info[ei_index].a_un.a_val = ep.e_phnum;
 	}
 	
 	// 1. Advance past the AT_NULL entry.
@@ -231,7 +245,7 @@ int build_stack(int argc, int envc, char *envp[], Elf64_Ehdr *ep)
 	
 	// 3. Populate list of argv pointers back to argv strings.
 	ptr = arg_start;
-	int i; 
+	int i;
 	for (i = 0; i < argc - 1; i++) 
 	{
 		*((unsigned long *) stack_ptr) = (unsigned long) ptr;
@@ -268,9 +282,118 @@ int clean_and_jump(Elf64_Addr elf_entry)
 	asm("movq $0, %rcx");
 	asm("movq $0, %rdx");
 	asm("movq %0, %%rsp" : : "r" (stack_top));
-	printf("\nDone with cleaning register\n");
+	printf("Done with cleaning register\n");
 	asm("jmp *%0" : : "c" (elf_entry));
 
 	return 0;
+}
+
+
+void segv_handler(int signo, siginfo_t *siginfo ,void* context)
+{
+	unsigned long elf_brk = 0, elf_bss = 0, k;
+	int elf_prot = 0, elf_flags, bss_prot ,unvalid_addr = 1;
+	Elf64_Addr siaddr = (Elf64_Addr) siginfo->si_addr;
+	Elf64_Phdr phdr;
+	
+	// 1. seek in file
+	lseek(fd, ep.e_phoff, SEEK_SET);
+	
+	// 2. traverse through program header tables
+	printf("\n[In segv_handler, traverse through program header tables(only map bss memory)]\n");
+	int i;
+	for (i = 0; i < ep.e_phnum; i++) 
+	{
+		k = 0;
+		 
+		// 3. initialize phdr for new segment
+		memset(&phdr, 0, sizeof(Elf64_Phdr));
+		
+		// 4. read one segment from fd 
+		if (read(fd, &phdr, sizeof(Elf64_Phdr)) < 0) 
+		{
+			fprintf(stderr, "read error on phdr\n");
+			return -1;
+		}
+		// 5. skip if not loadable segment
+		if (phdr.p_type != PT_LOAD)
+		{
+			printf("Not Loadable segment(PT_LOAD!=1)\n", i, phdr.p_type);
+			continue;
+		}
+		
+		// 6. check if valid memory & break if found
+		if ((phdr.p_vaddr <= siaddr) && siaddr <= (phdr.p_vaddr + phdr.p_memsz)) {
+			printf("Segment type(phdr.p_type[%d]): %u ", i, phdr.p_type); //PT_LOAD == 1
+			printf("-->Loadable segment(PT_LOAD==1)\n", i, phdr.p_type);
+			printf("phdr->p_vaddr: %p \t addr: %p \t phdr->p_vaddr+phdr->p_memsz: %p \n", (void *) phdr.p_vaddr, (void *) siaddr, (void *) (phdr.p_vaddr + phdr.p_memsz));
+			unvalid_addr = -1;
+			break;
+		}
+		
+	}
+	
+	// 7. If unvalid memory, then exit
+	if (unvalid_addr > 0) {
+		fprintf(stderr, "Unvalid memory reference\n");
+		exit(EXIT_FAILURE);
+	}
+	
+	// 8. set prot, flags for mapping
+	if (phdr.p_flags & PF_R)
+		elf_prot |= PROT_READ;
+	if (phdr.p_flags & PF_W)
+		elf_prot |= PROT_WRITE;
+	if (phdr.p_flags & PF_X)
+		elf_prot |= PROT_EXEC;
+	
+	elf_flags = MAP_PRIVATE | MAP_FIXED | MAP_EXECUTABLE;
+
+	/*
+	// 9. map segment --> SKIP THIS STEP in hpager
+	if (elf_map(phdr.p_vaddr, elf_prot, elf_flags, &phdr) < 0) 
+	{
+		fprintf(stderr, "error on elf_mapping\n");
+		return;
+	}
+	*/
+	
+	// 10. set bss and brk
+	k = phdr.p_vaddr + phdr.p_filesz;
+	printf("elf_bss[%d]: %p\t", i, (void *) k);
+	if (k > elf_bss)
+		elf_bss = k;
+
+	k = phdr.p_vaddr + phdr.p_memsz;
+	printf("elf_brk[%d]: %p\n", i, (void *) k);
+	if (k > elf_brk) 
+	{
+		bss_prot = elf_prot;
+		elf_brk = k;
+	}
+	
+	// 11. If memsz greater than filesz, allocate space for bss
+	if(phdr.p_memsz > phdr.p_filesz)
+	{
+		unsigned long nbyte;
+		
+		printf("-->brk bigger than bss\n");
+		
+		if(do_bss(elf_bss, elf_brk, bss_prot) < 0 )
+		{
+			fprintf(stderr, "error on bss mapping\n");
+			return;
+		}
+		
+		nbyte = ELF_PAGEOFFSET(elf_bss);
+		if (nbyte) 
+		{
+			nbyte = ELF_MIN_ALIGN - nbyte;
+			printf("elf_bss:%p \t elf_bss+nbyte:%p \t nbyte:%p \n", (void *) elf_bss, (void *) elf_bss+nbyte, (void *) nbyte);
+			memset(elf_bss, 0, nbyte);
+		}
+	}
+	
+	return;
 }
 
