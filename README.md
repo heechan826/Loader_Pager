@@ -29,6 +29,7 @@
 - **apager 방식과 비슷하게 loadble한 세그먼트들을 찾아서 한번에 로딩한다**
 - **하지만 bss memory 부분은 로딩시 매핑을 시키지 않는다**
 - **추후 bss memory 부재로 인해 segmentation fault가 나면, 해당 세그먼트에 해당하는 bss memory 부분만 segmentation handler로 매핑시킨다**
+- **본래 과제에서는 handler를 통한 첫 매핑시 prediction 알고리즘으로 다른 세그먼트도 미리 매핑하는것을 요구하였으나, 사용한 test 코드들에서는 segmentation fault가 일어난 세그먼트가 1개뿐이었기에 미리 매핑하는 방식은 구현되지 않았다.**
 ### 실행 시간
 - **실행 시간은 apager, dpager, hpager 모두가 비슷하다**
 - **dpager에서와 마찬가지로, test 프로그램이 한창 실행인 도중에 segmenation fault가 일어나지 않고 초반에 segmentation fault가 다 일어나기에 비슷한 실행시간을 갖는듯 하다**
