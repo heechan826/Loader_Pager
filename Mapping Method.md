@@ -12,7 +12,7 @@
     하는 방식으로 구현을 해야하지만, 대상이 되는 page들의 개수를 늘리기 위하여 처음에 1개의 page를 mapping하는 부분은 제거하였다**
 - **즉, dpager에서 segv handler를 통해서만 mapping이 일어나게 구현을 하였다.**
 # 1-Page Mapping
-<img width="400" alt="1개" src="https://user-images.githubusercontent.com/47956399/123965417-63d13c00-d9ef-11eb-9e21-03968a8b3b7e.PNG">
+<img width="500" alt="1개_최종" src="https://user-images.githubusercontent.com/47956399/123967087-f45c4c00-d9f0-11eb-9986-121d644a0059.PNG">
 
 #### [구현 방식]
 - **2-page, 3-page mapping을 사용하지 않고 page fault가 일어난 주소의 page만 mapping한다**
