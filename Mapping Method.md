@@ -1,12 +1,15 @@
 # Page Mapping Method
-#### [기존 과제와 다른 요구사항들]
+### [기존 과제와 다른 요구사항들]
 - **hybrid loading의 대상이 되는 page들을 대상으로 2,3-page mapping을 할것을 요구하였으나,   
     본 구현에서는 최대한 page들의 개수를 늘리기 위하여 demand loading의 대상인 page들에 대하여 2,3-page mapping을 하였다   
     (과제에서 중요하게 보는 부분이 결국 미리 page mapping을 하는 부분이라고 생각했어서, hpager가 아닌 dpager에서 구현을 해도 괜찮을 것이라고 판단하였다.).**
 - **처음에는 1개의 page를 미리 mapping한 후, segmentation fault가 일어날때마다 segv handler의 호출을 통해 mapping을  
     하는 방식으로 구현을 해야하지만, 대상이 되는 page들의 개수를 늘리기 위하여 처음에 1개의 page를 mapping하는 부분은 제거하였다**
 - **즉, dpager에서 segv handler를 통해서만 mapping이 일어나게 되는것이다.**
-
+### [3가지 매핑 알고리즘]
+  #### 1. Locality Based(Closest) Method: 매핑할 페이지에서 제일 가까운 페이지를 2nd page로 고른다
+#### 2. Locality Based(Farthest) Method 매핑할 페이지에서 제일 먼 페이지를 2nd page로 고른다
+#### 3. Optimal Method: 참조될 순서를 실행을 통해 알아낸 후, 해당 순서에 맞게 2nd page를 고른다
 # 1-Page Mapping
 <img width="600" alt="dpager실행창" src="https://user-images.githubusercontent.com/47956399/123953429-2ca85e00-d9e2-11eb-9a7d-c0874467d6c0.PNG">  
 
