@@ -5,15 +5,18 @@
 #include <stdbool.h>
 #include <signal.h>
 #include <elf.h>
-#include <sys/stat.h>
+#include <sys/stat.h> 
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include "dpager.h"
+#define OPTIMAL 4
 
 int8_t *stack_ptr, *stack_top, *arg_start, *env_start;
-int fd, count = 0;
+int fd, count = 0, phdr_size;
+int optimal[OPTIMAL] = {1, 3, 2, 0}, phdr_arr[20] = { 0, };
+char heuristic = 'O'; //'C':Closest 'F':Farthest 'O':Optimal 
 Elf64_Ehdr ep;
 Elf64_Addr mmap_addr;
 size_t mmap_size;
@@ -61,29 +64,25 @@ int main(int argc, char *argv[], char *envp[])
 void view_phdr()
 {
 	Elf64_Phdr phdr;
+	phdr_size = ep.e_phnum;
 
-	// 1. seek in file
 	lseek(fd, ep.e_phoff, SEEK_SET);
+	printf("There are %d entries for program header table", ep.e_phnum);
 	
-	printf("These are Loadable entries for program header table", ep.e_phnum);
-	
-	// 2. traverse through program header tables
 	int i;
 	for (i = 0; i < ep.e_phnum; i++) 
 	{
-		// 3. initialize phdr for new segment
 		memset(&phdr, 0, sizeof(Elf64_Phdr));
-		// 4. read one segment from fd 
 		if (read(fd, &phdr, sizeof(Elf64_Phdr)) < 0) 
 		{
 			fprintf(stderr, "read error on phdr\n");
 			return;
 		}
 		printf("\nphdr[%d]: %u ", i, phdr.p_type); //PT_LOAD == 1
-		// 5. skip if not loadable segment
 		if (phdr.p_type == PT_LOAD)
 		{
 			printf("-->Loadable segment(PT_LOAD==1)", i, phdr.p_type);
+			phdr_arr[i] = 1;
 		}
 	}
 	printf("\n\n");
@@ -111,7 +110,6 @@ int load_elf()
 		// 3. initialize phdr for new segment
 		memset(&phdr, 0, sizeof(Elf64_Phdr));
 		// 4. read one segment from fd 
-		//printf("\nfd location: %d", fd);
 		if (read(fd, &phdr, sizeof(Elf64_Phdr)) < 0) 
 		{
 			fprintf(stderr, "read error on phdr\n");
@@ -195,10 +193,10 @@ void *elf_map(Elf64_Addr addr, int prot, int type, Elf64_Phdr *phdr)
 	addr = ELF_PAGESTART(addr);
 	size = ELF_PAGEALIGN(size);
 	mmap_size = size;
+	//printf("phdr.p_vaddr: %p \t phdr.p_offset: %p \t phdr.p_vaddr + phdr.p_memsz: %p \n", phdr->p_vaddr, phdr->p_offset, phdr->p_vaddr + phdr->p_memsz);
 	/*
 	printf("phdr.p_vaddr: %p \t phdr.p_offset: %p \t phdr.p_memsz: %p \n", phdr->p_vaddr, phdr->p_offset, phdr->p_memsz);
 	printf("        addr: %p \t           off: %p \t         size: %p \n", addr, off, size);
-	printf("  off + size: %p \t   addr + size: %p    addr+phdr.p_memsz:%p\n", off + size, addr + size, addr+phdr->p_memsz);
 	*/
 	if (!size)
 		return (void *) addr;
@@ -326,20 +324,173 @@ int clean_and_jump(Elf64_Addr elf_entry)
 	return 0;
 }
 
+int closest_index(int size, int currentLocation, int * array)
+{
+	int i = currentLocation, top=-1, down=-1, selected;
+	array[i] = 0;
+	
+	for(--i; i >= 0; i--){
+		if(array[i] > 0){
+			down = i;
+			break;
+		}
+	}
+	
+	for(i = currentLocation; i < size; i++){
+		if(array[i] > 0){
+			top = i;
+			break;
+		}
+	}
+	
+	if((top>=0) && (down>=0)) selected = (top-currentLocation>currentLocation-down)? down : top;
+	
+	else {
+		if(top>=0) selected = top;
+		else selected = down;
+	}
+		
+	if(selected>=0&&selected<20) array[selected] = 0;
+	return selected;
+}
 
-void segv_handler(int signo, siginfo_t *siginfo ,void* context)
+int farthest_index(int size, int currentLocation, int * array)
+{
+	int i = currentLocation, top=-1, down=-1, selected;
+	array[i] = 0;
+	
+	for(--i; i >= 0; i--){
+		if(array[i] > 0){
+			down = i;
+		}
+	}
+	
+	for(i = currentLocation; i < size; i++){
+		if(array[i] > 0){
+			top = i;
+		}
+	}
+	
+	if((top>=0) && (down>=0)) selected = (top-currentLocation>currentLocation-down)? top : down;
+	
+	else {
+		if(top>=0) selected = top;
+		else selected = down;
+	}
+		
+	if(selected>=0&&selected<20) array[selected] = 0;
+	return selected;
+}
+
+void predict_map(int next_index)
 {
 	unsigned long elf_brk = 0, elf_bss = 0, k;
-	int elf_prot = 0, elf_flags, bss_prot ,unvalid_addr = 1;
-	Elf64_Addr siaddr = (Elf64_Addr) siginfo->si_addr;
+	int elf_prot = 0, elf_flags, bss_prot;
 	Elf64_Phdr phdr;
-	count++;
 	
 	// 1. seek in file
 	lseek(fd, ep.e_phoff, SEEK_SET);
 	
 	// 2. traverse through program header tables
-	///printf("\n[In segv_handler, traverse through program header tables]\n");
+	int i;
+	for (i = 0; i < ep.e_phnum; i++) 
+	{	
+		k = 0;
+		// 3. initialize phdr for new segment
+		memset(&phdr, 0, sizeof(Elf64_Phdr));
+		
+		// 4. read one segment from fd 
+		if (read(fd, &phdr, sizeof(Elf64_Phdr)) < 0) 
+		{
+			fprintf(stderr, "read error on phdr\n");
+			return -1;
+		}
+		
+		// 5. break when reached proper index
+		if (i == next_index){
+			printf("phdr[%d] \n", i); //PT_LOAD == 1
+			break;
+		}
+		
+	}
+	
+	// 6. set prot, flags for mapping
+	if (phdr.p_flags & PF_R)
+		elf_prot |= PROT_READ;
+	if (phdr.p_flags & PF_W)
+		elf_prot |= PROT_WRITE;
+	if (phdr.p_flags & PF_X)
+		elf_prot |= PROT_EXEC;
+	
+	elf_flags = MAP_PRIVATE | MAP_FIXED | MAP_EXECUTABLE;
+
+	// 7. map segment
+	mmap_addr = (Elf64_Addr) elf_map(phdr.p_vaddr, elf_prot, elf_flags, &phdr);
+	if (mmap_addr < 0) 
+	{
+		fprintf(stderr, "error on elf_mapping\n");
+		return;
+	}
+	
+	// 8. set bss and brk
+	k = phdr.p_vaddr + phdr.p_filesz;
+	if (k > elf_bss)
+		elf_bss = k;
+
+	k = phdr.p_vaddr + phdr.p_memsz;
+	if (k > elf_brk) 
+	{
+		bss_prot = elf_prot;
+		elf_brk = k;
+	}
+	
+	// 9. If memsz greater than filesz, allocate space for bss
+	if(phdr.p_memsz > phdr.p_filesz)
+	{
+		unsigned long nbyte;
+		if(do_bss(elf_bss, elf_brk, bss_prot) < 0 )
+		{
+			fprintf(stderr, "error on bss mapping\n");
+			return;
+		}
+		
+		nbyte = ELF_PAGEOFFSET(elf_bss);
+		if (nbyte) 
+		{
+			nbyte = ELF_MIN_ALIGN - nbyte;
+			memset(elf_bss, 0, nbyte);
+		}
+	}
+}
+
+void segv_handler(int signo, siginfo_t *siginfo ,void* context)
+{
+	unsigned long elf_brk = 0, elf_bss = 0, k;
+	int elf_prot = 0, elf_flags, bss_prot , unvalid_addr = 1, next_index = -1;
+	Elf64_Addr siaddr = (Elf64_Addr) siginfo->si_addr;
+	Elf64_Phdr phdr;
+	count++;
+	
+	if(count==1) {
+		switch(heuristic){
+		    case 'C' : 
+			printf("[Locality based(closest) method]\n");
+			break;
+		    case 'F' : 
+			printf("[Locality based(farthest) method]\n");
+			break;  
+		    case 'O' : 
+			printf("[Optimal method]\n");
+			break; 
+		    default :    
+			break;
+		}
+	}
+
+	// 1. seek in file
+	lseek(fd, ep.e_phoff, SEEK_SET);
+	
+	// 2. traverse through program header tables
 	int i;
 	for (i = 0; i < ep.e_phnum; i++) 
 	{
@@ -362,11 +513,23 @@ void segv_handler(int signo, siginfo_t *siginfo ,void* context)
 		}
 		
 		// 6. check if valid memory & break if found
-		if ((phdr.p_vaddr <= siaddr) && siaddr <= (phdr.p_vaddr + phdr.p_memsz)) {
-		
+		if ((phdr.p_vaddr <= siaddr) && siaddr <= (phdr.p_vaddr + phdr.p_memsz)) 
+		{
 			printf("Demand page: phdr[%d] \n", i); //PT_LOAD == 1
-			//printf("phdr->p_vaddr: %p \t segv_addr: %p \t phdr->p_vaddr+phdr->p_memsz: %p \n", (void *) phdr.p_vaddr, (void *) siaddr, (void *) (phdr.p_vaddr + phdr.p_memsz));
 			unvalid_addr = -1;
+			switch(heuristic){
+			    case 'C' : 
+				next_index = closest_index(phdr_size, i, phdr_arr);
+				break;
+			    case 'F' : 
+				next_index = farthest_index(phdr_size, i, phdr_arr);
+				break;  
+			    case 'O' : 
+				if(2*count-1<OPTIMAL) next_index = optimal[2*count-1];
+				break; 
+			    default :    
+				break;
+			}
 			break;
 		}
 		
@@ -377,8 +540,6 @@ void segv_handler(int signo, siginfo_t *siginfo ,void* context)
 		fprintf(stderr, "Unvalid memory reference\n");
 		exit(EXIT_FAILURE);
 	}
-	
-	//munmap(mmap_addr, mmap_size);
 	
 	// 8. set prot, flags for mapping
 	if (phdr.p_flags & PF_R)
@@ -400,12 +561,10 @@ void segv_handler(int signo, siginfo_t *siginfo ,void* context)
 	
 	// 10. set bss and brk
 	k = phdr.p_vaddr + phdr.p_filesz;
-	///printf("elf_bss[%d]: %p\t", i, (void *) k);
 	if (k > elf_bss)
 		elf_bss = k;
 
 	k = phdr.p_vaddr + phdr.p_memsz;
-	///printf("elf_brk[%d]: %p\n", i, (void *) k);
 	if (k > elf_brk) 
 	{
 		bss_prot = elf_prot;
@@ -416,9 +575,6 @@ void segv_handler(int signo, siginfo_t *siginfo ,void* context)
 	if(phdr.p_memsz > phdr.p_filesz)
 	{
 		unsigned long nbyte;
-		
-		///printf("-->brk bigger than bss\n");
-		
 		if(do_bss(elf_bss, elf_brk, bss_prot) < 0 )
 		{
 			fprintf(stderr, "error on bss mapping\n");
@@ -429,9 +585,15 @@ void segv_handler(int signo, siginfo_t *siginfo ,void* context)
 		if (nbyte) 
 		{
 			nbyte = ELF_MIN_ALIGN - nbyte;
-			///printf("elf_bss:%p \t elf_bss+nbyte:%p \t nbyte:%p \n", (void *) elf_bss, (void *) elf_bss+nbyte, (void *) nbyte);
 			memset(elf_bss, 0, nbyte);
 		}
+	}
+	
+	// 12. Invoke 2nd page prediction algorithm
+	if(next_index>=0) 
+	{
+		printf("Second page: "); 
+		predict_map(next_index);
 	}
 	
 	printf("%d page fault occured until now\n\n", count); 
