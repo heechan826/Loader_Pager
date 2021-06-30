@@ -8,7 +8,7 @@
 - **즉, dpager에서 segv handler를 통해서만 mapping이 일어나게 되는것이다.**
 ### [3가지 매핑 알고리즘]
   #### 1. Locality Based(Closest) Method: 매핑할 페이지에서 제일 가까운 페이지를 2nd page로 고른다
-#### 2. Locality Based(Farthest) Method 매핑할 페이지에서 제일 먼 페이지를 2nd page로 고른다
+#### 2. Locality Based(Farthest) Method: 매핑할 페이지에서 제일 먼 페이지를 2nd page로 고른다
 #### 3. Optimal Method: 참조될 순서를 실행을 통해 알아낸 후, 해당 순서에 맞게 2nd page를 고른다
 # 1-Page Mapping
 <img width="600" alt="dpager실행창" src="https://user-images.githubusercontent.com/47956399/123953429-2ca85e00-d9e2-11eb-9a7d-c0874467d6c0.PNG">  
