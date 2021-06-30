@@ -1,3 +1,12 @@
+# Page Mapping Method
+#### [기존 과제와 다른 요구사항들]
+- **hybrid loading의 대상이 되는 page들을 대상으로 2,3-page mapping을 할것을 요구하였으나,   
+    본 구현에서는 최대한 page들의 개수를 늘리기 위하여 demand loading의 대상인 page들에 대하여 2,3-page mapping을 하였다.**
+- **처음에는 1개의 page를 미리 mapping한 후, segmentation fault가 일어날때마다 segv handler의 호출을 통해 mapping을  
+    하는 방식으로 구현을 해야하지만, 대상이 되는 page들의 개수를 늘리기 위하여 처음에 1개의 page를 mapping하는 부분은   
+    제거하였다**
+- **즉, dpager에서 segv handler를 통해서만 mapping이 일어나게 되는것이다.**
+
 # 1-Page Mapping
 <img width="600" alt="dpager실행창" src="https://user-images.githubusercontent.com/47956399/123953429-2ca85e00-d9e2-11eb-9a7d-c0874467d6c0.PNG">  
 
@@ -49,4 +58,4 @@
 <img width="550" alt="쪼갠거" src="https://user-images.githubusercontent.com/47956399/123954530-7776a580-d9e3-11eb-9712-0c1356e47d94.PNG">
 
 - **총 4개의 page중 bss memory를 갖는 1개의 page만 제외하고, 나머지 3개의 page들을 각각 둘로 쪼개서 6개의 page로 생성하였다**
-- **총 7개의 page가 존재하게 되었으나, 마지막 page를 loading하는 과정에서 Load 할 수 없는 메모리에 접근하는 현상이 발생하여 해결은 못한 상황이다**
+- **총 7개의 page가 존재하게 되었으나, 마지막 page를 loading하는 과정에서 Load 할 수 없는 메모리에 접근하는 현상이 발생하여 해결은 못**
